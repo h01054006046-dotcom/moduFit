@@ -226,7 +226,7 @@ if __name__ == "__main__":
                 else:
                     st.write("조건에 맞는 하의 없음")
 
-    elif menu == " 의류 등록 및 관리":
+    elif menu == "의류 등록 및 관리":
         st.subheader("새로운 의류 추가하기 (Gemini AI 자동 분석)")
 
         captured_image = st.camera_input("의류 사진 촬영")
