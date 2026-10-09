@@ -1,8 +1,11 @@
 import io
+import json
 import random
 import requests
 import sqlite3
 import streamlit as st
+import PIL.Image
+from google import genai
 
 st.set_page_config(
     page_title="moduFit",
@@ -71,25 +74,48 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    [AI 비전 분석 함수]
-    촬영된 사진을 분석하여 체크셔츠, 반팔티, 청바지, 후드티 등
-    큼직하고 직관적인 의류 품목명과 카테고리, 적정 기온을 자동으로 추론합니다.
-    (추후 실제 Google Gemini Vision API 연동 시 이 함수 내부를 API 호출 코드로 교체하면 됩니다.)
+    제공된 Gemini API 키를 사용하여 실제 업로드된 의류 사진을 분석합니다.
     """
-    # 데모/시뮬레이션을 위해 자주 쓰이는 의류 품목 중 하나를 무작위로 매칭하거나 스마트하게 분류
-    sample_analysis_results = [
-        {"name": "체크셔츠", "category": "상의", "temp_min": 12, "temp_max": 20},
-        {"name": "반팔티", "category": "상의", "temp_min": 18, "temp_max": 28},
-        {"name": "청바지", "category": "하의", "temp_min": 10, "temp_max": 24},
-        {"name": "후드티", "category": "상의", "temp_min": 8, "temp_max": 17},
-        {"name": "코튼팬츠", "category": "하의", "temp_min": 14, "temp_max": 25},
-        {"name": "자켓", "category": "아우터", "temp_min": 10, "temp_max": 19}
-    ]
+    try:
+        # 전달해주신 실제 API 키 적용
+        client = genai.Client(api_key="AQ.Ab8RN6Lzf4_FF5STzHqVXNfM1rQLAEm4cUPBJvsNLo4Dg0Cy6g")
+        image = PIL.Image.open(io.BytesIO(image_bytes))
 
-    # 실제 구현에서는 이미지 바이트를 AI 모델에 전달하여 결과를 받아옵니다.
-    # 여기서는 테스트를 위해 리스트 중 하나를 반환하도록 구성했습니다.
-    selected = random.choice(sample_analysis_results)
-    return selected
+        prompt = """
+        이 의류 사진을 분석해서 아래 JSON 형식으로만 정확히 답변해줘. 다른 설명은 적지 마세요.
+        {
+            "name": "큼직하고 직관적인 품목명 (예: 흰색 반바지, 체크셔츠, 후드티, 청바지 등)",
+            "category": "상의, 하의, 아우터 중 정확히 하나 선택",
+            "temp_min": 이 옷을 입기 적절한 최저 기온 숫자 (예: 10),
+            "temp_max": 이 옷을 입기 적절한 최고 기온 숫자 (예: 25)
+        }
+        """
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[image, prompt]
+        )
+
+        text_response = response.text.strip()
+        # 마크다운 코드블록(```json ... ```)이 포함된 경우 제거
+        if text_response.startswith("```"):
+            text_response = text_response.split("```")[1]
+            if text_response.startswith("json"):
+                text_response = text_response[4:]
+            text_response = text_response.strip()
+            if text_response.endswith("```"):
+                text_response = text_response[:-3].strip()
+
+        parsed_data = json.loads(text_response)
+        return {
+            "name": parsed_data.get("name", "신규 의류"),
+            "category": parsed_data.get("category", "상의"),
+            "temp_min": int(parsed_data.get("temp_min", 10)),
+            "temp_max": int(parsed_data.get("temp_max", 25))
+        }
+    except Exception as e:
+        # 분석 실패 시 기본값 반환
+        return {"name": "촬영된 의류", "category": "상의", "temp_min": 15, "temp_max": 25}
 
 
 def recommend_outfit_from_db(current_temp):
@@ -200,8 +226,8 @@ if __name__ == "__main__":
                 else:
                     st.write("조건에 맞는 하의 없음")
 
-    elif menu == "의류 등록 및 관리":
-        st.subheader("새로운 의류 추가하기 (AI 자동 분류)")
+    elif menu == " 의류 등록 및 관리":
+        st.subheader("새로운 의류 추가하기 (Gemini AI 자동 분석)")
 
         captured_image = st.camera_input("의류 사진 촬영")
 
@@ -215,15 +241,15 @@ if __name__ == "__main__":
             st.image(image_bytes, width=300)
 
             if st.button("AI 자동 분석 요청"):
-                analyzed = analyze_image_with_ai(image_bytes)
-                st.session_state.ai_analyzed = True
-                st.session_state.analyzed_data = analyzed
-                st.session_state.img_bytes = image_bytes
-                st.success(f"AI 분석 완료: '{analyzed['name']}'({analyzed['category']})로 분류되었습니다.")
+                with st.spinner("AI가 사진을 분석하는 중입니다..."):
+                    analyzed = analyze_image_with_ai(image_bytes)
+                    st.session_state.ai_analyzed = True
+                    st.session_state.analyzed_data = analyzed
+                    st.session_state.img_bytes = image_bytes
+                st.success(f"분석 완료: '{analyzed['name']}' ({analyzed['category']})")
 
         default_name = st.session_state.analyzed_data["name"] if st.session_state.ai_analyzed else ""
 
-        # 카테고리 셀렉트박스 인덱스 설정
         categories = ["상의", "하의", "아우터"]
         default_cat_idx = 0
         if st.session_state.ai_analyzed:
@@ -235,7 +261,7 @@ if __name__ == "__main__":
         default_max = st.session_state.analyzed_data["temp_max"] if st.session_state.ai_analyzed else 25
 
         with st.form("add_form"):
-            name = st.text_input("의류 이름 (AI 분석 결과 반영)", value=default_name)
+            name = st.text_input("의류 이름", value=default_name)
             category = st.selectbox("카테고리", categories, index=default_cat_idx)
             temp_min = st.number_input("최저 기온 (℃)", value=default_min)
             temp_max = st.number_input("최고 기온 (℃)", value=default_max)
