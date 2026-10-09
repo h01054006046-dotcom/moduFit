@@ -50,7 +50,7 @@ def register_clothing(name, category, temp_min, temp_max, image_bytes=None):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO wardrobe (name, category, temp_min, temp_max, wear_count, last_worn, image)
-        VALUES (?, ?, ?, ?, 0, '2026-09-30', ?)
+        VALUES (?, ?, ?, ?, 0, '2026-10-09', ?)
     """, (name, category, temp_min, temp_max, image_bytes))
     conn.commit()
     conn.close()
@@ -74,7 +74,7 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    Gemini Vision API를 활용하여 의류 사진을 정확히 분석하는 함수
+    Gemini Vision API (gemini-3.8-flash)를 활용하여 의류 사진을 정확히 분석하는 함수
     """
     try:
         client = genai.Client(api_key="AQ.Ab8RN6Lzf4_FF5STzHqVXNfM1rQLAEm4cUPBJvsNLo4Dg0Cy6g")
@@ -91,8 +91,9 @@ def analyze_image_with_ai(image_bytes):
         }
         """
 
+        # 최신 모델명 적용
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[image, prompt]
         )
 
@@ -101,7 +102,6 @@ def analyze_image_with_ai(image_bytes):
         # 마크다운 코드블록이나 불필요한 백틱 제거
         if text_response.startswith("```"):
             lines = text_response.splitlines()
-            # 첫 줄과 마지막 줄(```) 제거
             if lines[0].startswith("```"):
                 lines = lines[1:]
             if lines and lines[-1].startswith("```"):
@@ -122,7 +122,6 @@ def analyze_image_with_ai(image_bytes):
             "temp_max": int(parsed_data.get("temp_max", 25))
         }
     except Exception as e:
-        # 오류 발생 시 원인을 파악할 수 있도록 에러 메시지 반환
         st.error(f"AI 분석 오류 발생: {e}")
         return {"name": "분석 실패 의류", "category": "상의", "temp_min": 15, "temp_max": 25}
 
