@@ -74,20 +74,20 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    제공된 Gemini API 키를 사용하여 실제 업로드된 의류 사진을 분석합니다.
+    Gemini Vision API를 활용하여 의류 사진을 정확히 분석하는 함수
     """
     try:
-        # 전달해주신 실제 API 키 적용
         client = genai.Client(api_key="AQ.Ab8RN6Lzf4_FF5STzHqVXNfM1rQLAEm4cUPBJvsNLo4Dg0Cy6g")
         image = PIL.Image.open(io.BytesIO(image_bytes))
 
         prompt = """
-        이 의류 사진을 분석해서 아래 JSON 형식으로만 정확히 답변해줘. 다른 설명은 적지 마세요.
+        당신은 스마트 의류 분류 AI입니다. 업로드된 옷 사진을 보고 다음 4가지 정보를 순서대로 정확하게 추출해주세요.
+        반드시 JSON 형식으로만 응답하며, 마크다운(```json 등)이나 다른 설명은 절대 포함하지 마세요.
         {
-            "name": "큼직하고 직관적인 품목명 (예: 흰색 반바지, 체크셔츠, 후드티, 청바지 등)",
-            "category": "상의, 하의, 아우터 중 정확히 하나 선택",
-            "temp_min": 이 옷을 입기 적절한 최저 기온 숫자 (예: 10),
-            "temp_max": 이 옷을 입기 적절한 최고 기온 숫자 (예: 25)
+            "name": "의류 품목명 (예: 흰색 반바지, 체크셔츠, 후드티, 청바지, 검은색 슬랙스 등)",
+            "category": "상의, 하의, 아우터 중 정확히 하나만 선택",
+            "temp_min": 이 옷을 입기 적절한 최저 기온 (숫자만),
+            "temp_max": 이 옷을 입기 적절한 최고 기온 (숫자만)
         }
         """
 
@@ -97,25 +97,34 @@ def analyze_image_with_ai(image_bytes):
         )
 
         text_response = response.text.strip()
-        # 마크다운 코드블록(```json ... ```)이 포함된 경우 제거
+
+        # 마크다운 코드블록이나 불필요한 백틱 제거
         if text_response.startswith("```"):
-            text_response = text_response.split("```")[1]
-            if text_response.startswith("json"):
-                text_response = text_response[4:]
-            text_response = text_response.strip()
-            if text_response.endswith("```"):
-                text_response = text_response[:-3].strip()
+            lines = text_response.splitlines()
+            # 첫 줄과 마지막 줄(```) 제거
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text_response = "\n".join(lines).strip()
 
         parsed_data = json.loads(text_response)
+
+        # 카테고리 검증 (상의, 하의, 아우터가 아닐 경우 강제로 교정)
+        cat = parsed_data.get("category", "상의")
+        if cat not in ["상의", "하의", "아우터"]:
+            cat = "상의"
+
         return {
             "name": parsed_data.get("name", "신규 의류"),
-            "category": parsed_data.get("category", "상의"),
+            "category": cat,
             "temp_min": int(parsed_data.get("temp_min", 10)),
             "temp_max": int(parsed_data.get("temp_max", 25))
         }
     except Exception as e:
-        # 분석 실패 시 기본값 반환
-        return {"name": "촬영된 의류", "category": "상의", "temp_min": 15, "temp_max": 25}
+        # 오류 발생 시 원인을 파악할 수 있도록 에러 메시지 반환
+        st.error(f"AI 분석 오류 발생: {e}")
+        return {"name": "분석 실패 의류", "category": "상의", "temp_min": 15, "temp_max": 25}
 
 
 def recommend_outfit_from_db(current_temp):
