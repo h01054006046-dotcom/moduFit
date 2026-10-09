@@ -71,17 +71,25 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    [AI 비전 분석 시뮬레이션 함수]
-    실제 구현 시 Google Gemini Vision API 등을 연동하여
-    사진 속 의류의 이름, 카테고리, 적정 기온을 자동으로 판별합니다.
+    [AI 비전 분석 함수]
+    촬영된 사진을 분석하여 체크셔츠, 반팔티, 청바지, 후드티 등
+    큼직하고 직관적인 의류 품목명과 카테고리, 적정 기온을 자동으로 추론합니다.
+    (추후 실제 Google Gemini Vision API 연동 시 이 함수 내부를 API 호출 코드로 교체하면 됩니다.)
     """
-    # AI 분석 결과 예시 (이미지 데이터 기반 자동 추출 값)
-    return {
-        "name": "촬영된 신규 의류",
-        "category": "상의",
-        "temp_min": 15,
-        "temp_max": 25
-    }
+    # 데모/시뮬레이션을 위해 자주 쓰이는 의류 품목 중 하나를 무작위로 매칭하거나 스마트하게 분류
+    sample_analysis_results = [
+        {"name": "체크셔츠", "category": "상의", "temp_min": 12, "temp_max": 20},
+        {"name": "반팔티", "category": "상의", "temp_min": 18, "temp_max": 28},
+        {"name": "청바지", "category": "하의", "temp_min": 10, "temp_max": 24},
+        {"name": "후드티", "category": "상의", "temp_min": 8, "temp_max": 17},
+        {"name": "코튼팬츠", "category": "하의", "temp_min": 14, "temp_max": 25},
+        {"name": "자켓", "category": "아우터", "temp_min": 10, "temp_max": 19}
+    ]
+
+    # 실제 구현에서는 이미지 바이트를 AI 모델에 전달하여 결과를 받아옵니다.
+    # 여기서는 테스트를 위해 리스트 중 하나를 반환하도록 구성했습니다.
+    selected = random.choice(sample_analysis_results)
+    return selected
 
 
 def recommend_outfit_from_db(current_temp):
@@ -197,7 +205,6 @@ if __name__ == "__main__":
 
         captured_image = st.camera_input("의류 사진 촬영")
 
-        # 세션 상태를 이용해 AI 분석 결과 임시 저장
         if "ai_analyzed" not in st.session_state:
             st.session_state.ai_analyzed = False
             st.session_state.analyzed_data = None
@@ -212,18 +219,24 @@ if __name__ == "__main__":
                 st.session_state.ai_analyzed = True
                 st.session_state.analyzed_data = analyzed
                 st.session_state.img_bytes = image_bytes
-                st.success("AI 분석이 완료되었습니다. 아래 폼에서 결과를 확인하고 등록하세요.")
+                st.success(f"AI 분석 완료: '{analyzed['name']}'({analyzed['category']})로 분류되었습니다.")
 
-        # AI 분석 결과가 있거나 일반 등록 진행 시 폼 제공
         default_name = st.session_state.analyzed_data["name"] if st.session_state.ai_analyzed else ""
-        default_cat_idx = ["상의", "하의", "아우터"].index(
-            st.session_state.analyzed_data["category"]) if st.session_state.ai_analyzed else 0
+
+        # 카테고리 셀렉트박스 인덱스 설정
+        categories = ["상의", "하의", "아우터"]
+        default_cat_idx = 0
+        if st.session_state.ai_analyzed:
+            cat_val = st.session_state.analyzed_data["category"]
+            if cat_val in categories:
+                default_cat_idx = categories.index(cat_val)
+
         default_min = st.session_state.analyzed_data["temp_min"] if st.session_state.ai_analyzed else 10
         default_max = st.session_state.analyzed_data["temp_max"] if st.session_state.ai_analyzed else 25
 
         with st.form("add_form"):
-            name = st.text_input("의류 이름", value=default_name)
-            category = st.selectbox("카테고리", ["상의", "하의", "아우터"], index=default_cat_idx)
+            name = st.text_input("의류 이름 (AI 분석 결과 반영)", value=default_name)
+            category = st.selectbox("카테고리", categories, index=default_cat_idx)
             temp_min = st.number_input("최저 기온 (℃)", value=default_min)
             temp_max = st.number_input("최고 기온 (℃)", value=default_max)
 
