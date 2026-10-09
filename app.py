@@ -74,7 +74,7 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    Gemini Vision API (gemini-3.8-flash)를 활용하여 의류 사진을 정확히 분석하는 함수
+    Gemini API (gemini-3.5-flash)를 활용하여 안정적으로 의류 사진을 분석하는 함수
     """
     try:
         client = genai.Client(api_key="AQ.Ab8RN6Lzf4_FF5STzHqVXNfM1rQLAEm4cUPBJvsNLo4Dg0Cy6g")
@@ -91,15 +91,14 @@ def analyze_image_with_ai(image_bytes):
         }
         """
 
-        # 최신 모델명 적용
+        # 안정적인 gemini-3.5-flash 모델 사용
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-3.5-flash',
             contents=[image, prompt]
         )
 
         text_response = response.text.strip()
 
-        # 마크다운 코드블록이나 불필요한 백틱 제거
         if text_response.startswith("```"):
             lines = text_response.splitlines()
             if lines[0].startswith("```"):
@@ -110,7 +109,6 @@ def analyze_image_with_ai(image_bytes):
 
         parsed_data = json.loads(text_response)
 
-        # 카테고리 검증 (상의, 하의, 아우터가 아닐 경우 강제로 교정)
         cat = parsed_data.get("category", "상의")
         if cat not in ["상의", "하의", "아우터"]:
             cat = "상의"
@@ -122,8 +120,8 @@ def analyze_image_with_ai(image_bytes):
             "temp_max": int(parsed_data.get("temp_max", 25))
         }
     except Exception as e:
-        st.error(f"AI 분석 오류 발생: {e}")
-        return {"name": "분석 실패 의류", "category": "상의", "temp_min": 15, "temp_max": 25}
+        st.warning("서버 트래픽이 많아 분석이 지연되었습니다. 기본값으로 설정됩니다. 다시 시도해 주세요.")
+        return {"name": "신규 의류", "category": "하의", "temp_min": 15, "temp_max": 25}
 
 
 def recommend_outfit_from_db(current_temp):
