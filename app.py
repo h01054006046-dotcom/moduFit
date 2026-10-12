@@ -92,10 +92,9 @@ def get_current_weather(use_api, manual_temp):
 
 def analyze_image_with_ai(image_bytes):
     """
-    st.secrets를 활용하여 API 키를 안전하게 불러와 Gemini API로 의류 사진을 분석하는 함수
+    정확한 에러 원인을 화면에 출력하도록 수정한 AI 분석 함수
     """
     try:
-        # 🔑 소스코드에 키를 직접 적지 않고, 안전한 시크릿 보관함에서 불러옵니다.
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
 
@@ -112,8 +111,9 @@ def analyze_image_with_ai(image_bytes):
         }
         """
 
+        # 안정적인 gemini-2.5-flash 모델 사용
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-2.5-flash',
             contents=[image, prompt]
         )
 
@@ -140,7 +140,8 @@ def analyze_image_with_ai(image_bytes):
             "temp_max": int(parsed_data.get("temp_max", 25))
         }
     except Exception as e:
-        st.warning("서버 트래픽이 많거나 설정 오류가 발생했습니다. 기본값으로 설정됩니다. 다시 시도해 주세요.")
+        # 🔍 구체적인 에러 원인을 화면에 빨간색으로 출력합니다.
+        st.error(f"상세 에러 내용: {e}")
         return {"name": "신규 의류", "category": "하의", "temp_min": 15, "temp_max": 25}
 
 
