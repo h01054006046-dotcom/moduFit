@@ -76,16 +76,17 @@ def register_clothing(name, category, temp_min, temp_max, image_bytes=None):
 
 def get_current_weather(use_api, manual_temp):
     """
-    실시간 날씨 API 연동 여부에 따라 기온을 반환하는 함수 (수동 기온 반영 수정)
+    날씨 API 키도 st.secrets를 통해 안전하게 불러오도록 수정된 함수
     """
     if not use_api:
-        return manual_temp  # 👈 체크박스가 해제되어 있으면 수동 기온을 그대로 반환합니다.
-
-    api_key = "ccbbadf63161257553c8cbbd8762e92c"
-    city = "Seoul"
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+        return manual_temp
 
     try:
+        # 🔑 날씨 API 키를 시크릿 보관함에서 안전하게 호출
+        api_key = st.secrets["WEATHER_API_KEY"]
+        city = "Seoul"
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+
         response = requests.get(url, timeout=3)
         data = response.json()
         return round(data["main"]["temp"])
@@ -94,7 +95,11 @@ def get_current_weather(use_api, manual_temp):
 
 
 def analyze_image_with_ai(image_bytes):
+    """
+    Gemini API 키를 st.secrets를 통해 안전하게 호출하는 함수
+    """
     try:
+        # 🔑 제미나이 API 키를 시크릿 보관함에서 안전하게 호출
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
 
@@ -217,7 +222,6 @@ if __name__ == "__main__":
             manual_temp = st.slider("수동 기온 설정 (℃)", -10, 35, 18)
 
         if st.button("코디 추천받기"):
-            # 👈 수동 기온(manual_temp) 값이 함수로 정확히 전달되도록 수정했습니다.
             current_temp = get_current_weather(use_api, manual_temp)
             result = recommend_outfit_from_db(current_temp)
 
