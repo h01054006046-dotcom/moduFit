@@ -74,15 +74,11 @@ def register_clothing(name, category, temp_min, temp_max, image_bytes=None):
     conn.close()
 
 
-def get_current_weather(use_api, manual_temp):
+def get_current_weather():
     """
-    날씨 API 키도 st.secrets를 통해 안전하게 불러오도록 수정된 함수
+    실시간 날씨 API를 통해 현재 서울 기온을 가져오는 함수 (실패 시 기본 기온 18℃ 반환)
     """
-    if not use_api:
-        return manual_temp
-
     try:
-        # 🔑 날씨 API 키를 시크릿 보관함에서 안전하게 호출
         api_key = st.secrets["WEATHER_API_KEY"]
         city = "Seoul"
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
@@ -91,15 +87,14 @@ def get_current_weather(use_api, manual_temp):
         data = response.json()
         return round(data["main"]["temp"])
     except:
-        return manual_temp
+        return 18
 
 
 def analyze_image_with_ai(image_bytes):
     """
-    Gemini API 키를 st.secrets를 통해 안전하게 호출하는 함수
+    Gemini API를 이용해 의류 이미지를 자동 분석하는 함수
     """
     try:
-        # 🔑 제미나이 API 키를 시크릿 보관함에서 안전하게 호출
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
 
@@ -214,18 +209,13 @@ if __name__ == "__main__":
 
     if menu == "오늘의 코디 추천":
         st.subheader("실시간 날씨 연동 코디 매칭")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            use_api = st.checkbox("실시간 날씨 API 연동 사용", value=True)
-        with c2:
-            manual_temp = st.slider("수동 기온 설정 (℃)", -10, 35, 18)
+        st.write("현재 서울의 실시간 날씨를 불러와 가장 알맞은 코디를 추천해 드립니다.")
 
         if st.button("코디 추천받기"):
-            current_temp = get_current_weather(use_api, manual_temp)
+            current_temp = get_current_weather()
             result = recommend_outfit_from_db(current_temp)
 
-            st.write(f"현재 기온: {result['temp']}℃")
+            st.info(f"현재 서울 기온: **{result['temp']}℃**")
 
             col1, col2, col3 = st.columns(3)
 
