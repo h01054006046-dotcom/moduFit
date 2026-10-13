@@ -75,9 +75,6 @@ def register_clothing(name, category, temp_min, temp_max, image_bytes=None):
 
 
 def get_current_weather():
-    """
-    실시간 날씨 API를 통해 현재 서울 기온을 가져오는 함수 (실패 시 기본 기온 18℃ 반환)
-    """
     try:
         api_key = st.secrets["WEATHER_API_KEY"]
         city = "Seoul"
@@ -91,9 +88,6 @@ def get_current_weather():
 
 
 def analyze_image_with_ai(image_bytes):
-    """
-    Gemini API를 이용해 의류 이미지를 자동 분석하는 함수
-    """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
@@ -117,20 +111,15 @@ def analyze_image_with_ai(image_bytes):
         )
 
         text_response = response.text.strip()
-
         if text_response.startswith("```"):
             lines = text_response.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
+            if lines[0].startswith("```"): lines = lines[1:]
+            if lines and lines[-1].startswith("```"): lines = lines[:-1]
             text_response = "\n".join(lines).strip()
 
         parsed_data = json.loads(text_response)
-
         cat = parsed_data.get("category", "상의")
-        if cat not in ["상의", "하의", "아우터"]:
-            cat = "상의"
+        if cat not in ["상의", "하의", "아우터"]: cat = "상의"
 
         return {
             "name": parsed_data.get("name", "신규 의류"),
@@ -143,37 +132,94 @@ def analyze_image_with_ai(image_bytes):
         return {"name": "신규 의류", "category": "하의", "temp_min": 15, "temp_max": 25}
 
 
-def recommend_outfit_from_db(current_temp):
-    conn = sqlite3.connect("modu_fit.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, category, temp_min, temp_max, wear_count, image FROM wardrobe")
-    rows = cursor.fetchall()
-    conn.close()
+def ai_recommend_outfit(current_temp, wardrobe_items):
+    """
+    Gemini AI가 현재 기온과 옷장 목록을 분석하여 가장 어울리는 코디를 직접 선정하는 함수
+    """
+    if not wardrobe_items:
+        return {"outer": None, "top": None, "bottom": None, "reason": "등록된 옷이 없습니다."}
 
-    suitable_items = [
-        {"id": row[0], "name": row[1], "category": row[2], "temp_min": row[3], "temp_max": row[4], "wear_count": row[5],
-         "image": row[6]}
-        for row in rows
-        if row[3] <= current_temp <= row[4]
-    ]
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        client = genai.Client(api_key=api_key)
 
-    if not suitable_items:
-        return {"temp": current_temp, "outer": None, "top": None, "bottom": None}
+        # 옷장 데이터를 JSON 문자열로 변환하여 AI에게 전달
+        items_summary = [
+            {"id": item[0], "name": item[1], "category": item[2], "temp_min": item[3], "temp_max": item[4]}
+            for item in wardrobe_items
+        ]
 
-    suitable_outers = [item for item in suitable_items if item["category"] == "아우터"]
-    suitable_tops = [item for item in suitable_items if item["category"] == "상의"]
-    suitable_bottoms = [item for item in suitable_items if item["category"] == "하의"]
+        prompt = f"""
+        현재 서울의 기온은 {current_temp}℃ 입니다.
+        아래 사용자의 옷장 인벤토리 목록 중에서 현재 기온에 가장 잘 어울리고 스타일 조합이 조화로운 '아우터', '상의', '하의'를 각각 정확히 하나씩 골라주세요.
+        (단, 아우터는 날씨상 불필요하다면 null을 선택해도 됩니다. 상의와 하의는 반드시 옷장에 있는 항목의 id 중 하나를 골라야 합니다.)
 
-    outer = random.choice(suitable_outers) if suitable_outers else None
-    top = random.choice(suitable_tops) if suitable_tops else None
-    bottom = random.choice(suitable_bottoms) if suitable_bottoms else None
+        옷장 목록:
+        {json.dumps(items_summary, ensure_ascii=False)}
 
-    return {
-        "temp": current_temp,
-        "outer": outer,
-        "top": top,
-        "bottom": bottom
-    }
+        반드시 아래 JSON 형식으로만 응답하고 마크다운이나 다른 설명은 포함하지 마세요.
+        {{
+            "outer_id": 선택된 아우터의 id (없거나 불필요하면 null),
+            "top_id": 선택된 상의의 id (필수),
+            "bottom_id": 선택된 하의의 id (필수),
+            "reason": "이 코디를 추천하는 AI의 센스 있는 이유 (한국어 한 문장)"
+        }}
+        """
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt]
+        )
+
+        text_response = response.text.strip()
+        if text_response.startswith("```"):
+            lines = text_response.splitlines()
+            if lines[0].startswith("```"): lines = lines[1:]
+            if lines and lines[-1].startswith("```"): lines = lines[:-1]
+            text_response = "\n".join(lines).strip()
+
+        result_json = json.loads(text_response)
+
+        # ID로 실제 옷 데이터 매핑
+        item_dict = {item[0]: item for item in wardrobe_items}
+
+        outer = item_dict.get(result_json.get("outer_id")) if result_json.get("outer_id") else None
+        top = item_dict.get(result_json.get("top_id")) if result_json.get("top_id") else None
+        bottom = item_dict.get(result_json.get("bottom_id")) if result_json.get("bottom_id") else None
+        reason = result_json.get("reason", "오늘 날씨에 딱 어울리는 멋진 코디입니다!")
+
+        return {
+            "outer": {"id": outer[0], "name": outer[1], "category": outer[2], "temp_min": outer[3],
+                      "temp_max": outer[4], "image": outer[5]} if outer else None,
+            "top": {"id": top[0], "name": top[1], "category": top[2], "temp_min": top[3], "temp_max": top[4],
+                    "image": top[5]} if top else None,
+            "bottom": {"id": bottom[0], "name": bottom[1], "category": bottom[2], "temp_min": bottom[3],
+                       "temp_max": bottom[4], "image": bottom[5]} if bottom else None,
+            "reason": reason
+        }
+    except Exception as e:
+        # AI 추천 실패 시 기온 조건에 맞는 옷 중 랜덤으로 대체
+        suitable = [item for item in wardrobe_items if item[3] <= current_temp <= item[4]]
+        if not suitable: suitable = wardrobe_items
+
+        tops = [i for i in suitable if i[2] == "상의"]
+        bottoms = [i for i in suitable if i[2] == "하의"]
+        outers = [i for i in suitable if i[2] == "아우터"]
+
+        t = random.choice(tops) if tops else (wardrobe_items[0] if wardrobe_items else None)
+        b = random.choice(bottoms) if bottoms else (wardrobe_items[0] if wardrobe_items else None)
+        o = random.choice(outers) if outers else None
+
+        def fmt(x):
+            return {"id": x[0], "name": x[1], "category": x[2], "temp_min": x[3], "temp_max": x[4],
+                    "image": x[5]} if x else None
+
+        return {
+            "outer": fmt(o),
+            "top": fmt(t),
+            "bottom": fmt(b),
+            "reason": f"AI 분석 중 오류가 발생하여 기온 맞춤형 대체 코디를 추천합니다. (오류: {e})"
+        }
 
 
 if __name__ == "__main__":
@@ -208,14 +254,22 @@ if __name__ == "__main__":
     menu = st.sidebar.selectbox("메뉴 선택", ["오늘의 코디 추천", "의류 등록 및 관리", "옷장 인벤토리 조회"])
 
     if menu == "오늘의 코디 추천":
-        st.subheader("실시간 날씨 연동 코디 매칭")
-        st.write("현재 서울의 실시간 날씨를 불러와 가장 알맞은 코디를 추천해 드립니다.")
+        st.subheader("AI 센스 코디 추천")
+        st.write("실시간 날씨와 옷장 목록을 Gemini AI가 분석하여 가장 어울리는 코디를 골라드립니다.")
 
-        if st.button("코디 추천받기"):
+        if st.button("AI 코디 추천받기"):
             current_temp = get_current_weather()
-            result = recommend_outfit_from_db(current_temp)
 
-            st.info(f"현재 서울 기온: **{result['temp']}℃**")
+            conn = sqlite3.connect("modu_fit.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, category, temp_min, temp_max, image FROM wardrobe")
+            wardrobe_items = cursor.fetchall()
+            conn.close()
+
+            with st.spinner("Gemini AI가 오늘의 날씨와 옷장을 분석하여 코디를 조합하는 중입니다..."):
+                result = ai_recommend_outfit(current_temp, wardrobe_items)
+
+            st.info(f"현재 서울 기온: **{current_temp}℃**\n\n💡 **AI 스타일 코멘트**: {result['reason']}")
 
             col1, col2, col3 = st.columns(3)
 
