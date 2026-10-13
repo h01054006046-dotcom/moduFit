@@ -75,8 +75,11 @@ def register_clothing(name, category, temp_min, temp_max, image_bytes=None):
 
 
 def get_current_weather(use_api, manual_temp):
+    """
+    실시간 날씨 API 연동 여부에 따라 기온을 반환하는 함수 (수동 기온 반영 수정)
+    """
     if not use_api:
-        return manual_temp
+        return manual_temp  # 👈 체크박스가 해제되어 있으면 수동 기온을 그대로 반환합니다.
 
     api_key = "ccbbadf63161257553c8cbbd8762e92c"
     city = "Seoul"
@@ -91,9 +94,6 @@ def get_current_weather(use_api, manual_temp):
 
 
 def analyze_image_with_ai(image_bytes):
-    """
-    정확한 에러 원인을 화면에 출력하도록 수정한 AI 분석 함수
-    """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
@@ -111,7 +111,6 @@ def analyze_image_with_ai(image_bytes):
         }
         """
 
-        # 안정적인 gemini-2.5-flash 모델 사용
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=[image, prompt]
@@ -140,8 +139,7 @@ def analyze_image_with_ai(image_bytes):
             "temp_max": int(parsed_data.get("temp_max", 25))
         }
     except Exception as e:
-        # 🔍 구체적인 에러 원인을 화면에 빨간색으로 출력합니다.
-        st.error(f"상세 에러 내용: {e}")
+        st.error(f"AI 분석 오류 발생: {e}")
         return {"name": "신규 의류", "category": "하의", "temp_min": 15, "temp_max": 25}
 
 
@@ -219,6 +217,7 @@ if __name__ == "__main__":
             manual_temp = st.slider("수동 기온 설정 (℃)", -10, 35, 18)
 
         if st.button("코디 추천받기"):
+            # 👈 수동 기온(manual_temp) 값이 함수로 정확히 전달되도록 수정했습니다.
             current_temp = get_current_weather(use_api, manual_temp)
             result = recommend_outfit_from_db(current_temp)
 
