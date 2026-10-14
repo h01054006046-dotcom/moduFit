@@ -22,10 +22,16 @@ CATEGORIES = ["상의", "하의", "아우터"]
 DEFAULT_CITY = "Seoul"
 DEFAULT_TEMP = 18  # 날씨 조회 실패 시 임시로 쓰는 기온
 
-# 앞에서부터 순서대로 시도합니다. 503이 계속 나면 아래에 다른 모델 이름을 추가하세요.
+# 앞에서부터 순서대로 시도합니다. 한 모델이 503(과부하)이거나 429(한도 초과)이면 다음 모델로 넘어갑니다.
+# 존재하지 않는 모델 이름(404)도 자동으로 건너뛰니, 목록이 틀려도 앱은 죽지 않습니다.
 # (사용 가능한 모델은 client.models.list()로 확인)
-MODEL_CANDIDATES = ["gemini-3.8-flash"]
-MAX_RETRIES = 3  # 모델 하나당 재시도 횟수 (503/429일 때만)
+MODEL_CANDIDATES = [
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+]
+MAX_RETRIES = 2  # 모델 하나당 시도 횟수 (503일 때만 1번 더 시도)
 
 st.set_page_config(page_title="moduFit", page_icon=None, layout="wide")
 
@@ -185,11 +191,13 @@ def call_gemini_json(contents):
             except Exception as e:
                 last_error = e
                 msg = str(e)
-                retryable = any(code in msg for code in ("503", "429", "UNAVAILABLE"))
-                if retryable and attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)  # 1초, 2초 간격으로 재시도
+                # 503(서버 과부하)만 같은 모델로 잠깐 쉬었다가 다시 시도합니다.
+                # 429(한도 초과)나 404(없는 모델)는 재시도해도 소용없으니 바로 다음 모델로 갑니다.
+                overloaded = "503" in msg or "UNAVAILABLE" in msg
+                if overloaded and attempt < MAX_RETRIES - 1:
+                    time.sleep(1 + attempt + random.random())  # 1~2초 쉬고 재시도
                     continue
-                break  # 재시도 불가 오류이거나 횟수 소진 -> 다음 모델로
+                break  # 다음 모델로
     raise last_error
 
 
