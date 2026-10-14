@@ -8,10 +8,11 @@ from contextlib import contextmanager
 from datetime import date
 
 import PIL.Image
-import requests
 import streamlit as st
 from google import genai
 from google.genai import types
+
+from weather import build_prompt_context, get_weather, recommend_items
 
 # ---------------------------------------------------------------------------
 # 설정값 (바꿀 일이 생기면 여기만 고치면 됩니다)
@@ -138,27 +139,19 @@ def fetch_wardrobe():
 
 
 # ---------------------------------------------------------------------------
-# 날씨
+# 날씨 (실제 조회와 소지품 규칙은 weather.py에 있습니다)
 # ---------------------------------------------------------------------------
 def get_current_weather(city):
-    """(기온, 경고메시지) 반환. 실패하면 기본 기온과 함께 이유를 돌려줍니다."""
+    """(날씨 dict 또는 None, 경고메시지) 반환. 실패하면 None과 함께 이유를 돌려줍니다."""
     try:
         api_key = st.secrets["WEATHER_API_KEY"]
-        resp = requests.get(
-            "https://api.openweathermap.org/data/2.5/weather",
-            params={"q": city, "appid": api_key, "units": "metric"},
-            timeout=5,
-        )
-        resp.raise_for_status()
-        return round(resp.json()["main"]["temp"]), None
-    except KeyError:
-        return DEFAULT_TEMP, "WEATHER_API_KEY가 secrets에 없거나 응답 형식이 달라 기본 기온을 사용했습니다."
-    except requests.HTTPError as e:
-        return DEFAULT_TEMP, f"날씨 API 오류({e.response.status_code})로 기본 기온을 사용했습니다. 키/도시 이름을 확인하세요."
-    except requests.RequestException:
-        return DEFAULT_TEMP, "날씨 서버에 연결하지 못해 기본 기온을 사용했습니다."
-    except Exception as e:
-        return DEFAULT_TEMP, f"날씨 조회 중 알 수 없는 오류로 기본 기온을 사용했습니다. ({e})"
+    except Exception:
+        return None, "WEATHER_API_KEY가 secrets에 없어 기본 기온을 사용했습니다."
+
+    weather = get_weather(api_key, city=city)
+    if weather is None:
+        return None, "날씨를 불러오지 못해 기본 기온을 사용했습니다. API 키, 도시 이름, 인터넷 연결을 확인하세요."
+    return weather, None
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +245,7 @@ def fallback_pick(items, category, temp, require_fit=False):
     return min(pool, key=lambda i: (i["wear_count"] or 0, i["last_worn"] or ""))
 
 
-def ai_recommend_outfit(city, current_temp, items):
+def ai_recommend_outfit(city, current_temp, items, weather_context=""):
     if not items:
         return {"outer": None, "top": None, "bottom": None, "reason": "등록된 옷이 없습니다."}
 
@@ -268,6 +261,7 @@ def ai_recommend_outfit(city, current_temp, items):
 
     prompt = f"""
     오늘 날짜는 {date.today().isoformat()}이고, 현재 {city}의 기온은 {current_temp}℃ 입니다.
+    {weather_context}
     아래 옷장 목록 중에서 현재 기온에 가장 잘 어울리고 스타일 조합이 조화로운 '아우터', '상의', '하의'를 각각 하나씩 골라주세요.
     - 상의와 하의는 반드시 해당 카테고리의 id 중에서 골라야 합니다.
     - 아우터는 날씨상 불필요하면 null로 답하세요.
@@ -338,14 +332,21 @@ def page_recommend(city):
     st.write("실시간 날씨와 옷장 목록을 Gemini AI가 분석하여 가장 어울리는 코디를 골라드립니다.")
 
     if st.button("AI 코디 추천받기"):
-        current_temp, warning = get_current_weather(city)
+        weather, warning = get_current_weather(city)
+        if weather:
+            current_temp = round(weather["temp"])
+            bring = recommend_items(weather)  # 규칙 기반이라 Gemini 호출이 필요 없음
+            weather_context = build_prompt_context(weather, bring)
+        else:
+            current_temp, bring, weather_context = DEFAULT_TEMP, [], ""
+
         items = fetch_wardrobe()
         with st.spinner("Gemini AI가 오늘의 날씨와 옷장을 분석하여 코디를 조합하는 중입니다..."):
-            result = ai_recommend_outfit(city, current_temp, items)
+            result = ai_recommend_outfit(city, current_temp, items, weather_context)
         # 버튼 클릭 이후 다시 실행돼도 결과가 유지되도록 session_state에 저장
         st.session_state.outfit = {
-            "city": city, "temp": current_temp, "warning": warning,
-            "result": result, "recorded": False,
+            "city": city, "temp": current_temp, "weather": weather, "bring": bring,
+            "warning": warning, "result": result, "recorded": False,
         }
 
     outfit = st.session_state.get("outfit")
@@ -353,9 +354,24 @@ def page_recommend(city):
         return
 
     result = outfit["result"]
+    weather = outfit.get("weather")
+    bring = outfit.get("bring", [])
+
     if outfit["warning"]:
         st.warning(outfit["warning"])
-    st.info(f"현재 {outfit['city']} 기온: **{outfit['temp']}℃**\n\n💡 **AI 스타일 코멘트**: {result['reason']}")
+
+    temp_text = f"**{outfit['temp']}℃**"
+    if weather:
+        temp_text += f" ({weather['description']}, 체감 {weather['feels_like']:.0f}℃)"
+    st.info(f"현재 {outfit['city']} 기온: {temp_text}\n\n💡 **AI 스타일 코멘트**: {result['reason']}")
+
+    if weather:
+        if bring:
+            st.markdown("##### 오늘 챙기면 좋은 소지품")
+            for b in bring:
+                st.write(f"- **{b['item']}** — {b['reason']}")
+        else:
+            st.caption("오늘은 특별히 챙길 소지품이 없어요.")
 
     col1, col2, col3 = st.columns(3)
     with col1:
